@@ -7,7 +7,7 @@ import util from "util";
 const execAsync = util.promisify(exec);
 
 // Define TypeScript interfaces for clear data contract
-export interface NetworkNode {
+interface NetworkNode {
   ip: string;
   role: "gateway" | "target" | "peer" | "broadcast";
   status: "online" | "offline" | "unreachable";
@@ -17,7 +17,7 @@ export interface NetworkNode {
   isTarget: boolean;
 }
 
-export interface NetworkMapResult {
+interface NetworkMapResult {
   targetIp: string;
   subnet: {
     cidr: string;

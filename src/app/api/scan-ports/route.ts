@@ -20,14 +20,14 @@ import net from "net";
  * =====================================================================
  */
 
-export interface PortDefinition {
+interface PortDefinition {
   port: number;
   service: string;
   description: string;
 }
 
 // List of commonly inspected ports across home, office, and developer networks
-export const COMMON_PORTS: PortDefinition[] = [
+const COMMON_PORTS: PortDefinition[] = [
   { port: 21, service: "FTP", description: "File Transfer Protocol" },
   { port: 22, service: "SSH", description: "Secure Shell remote login" },
   { port: 25, service: "SMTP", description: "Mail routing" },
@@ -44,7 +44,7 @@ export const COMMON_PORTS: PortDefinition[] = [
   { port: 8443, service: "HTTPS-Alt", description: "Alternative secure web proxy" },
 ];
 
-export interface PortScanResult {
+interface PortScanResult {
   port: number;
   service: string;
   description: string;

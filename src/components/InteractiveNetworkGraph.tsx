@@ -34,7 +34,7 @@ export interface GraphNode {
   color: string;
   borderColor: string;
   glowColor: string;
-  iconType: "router" | "target" | "subnet" | "port-open" | "port-closed" | "peer";
+  iconType: "gateway" | "target" | "subnet" | "port-open" | "port-closed" | "peer";
   details: {
     ip?: string;
     port?: number;
@@ -154,7 +154,7 @@ export default function InteractiveNetworkGraph({
       color: "from-amber-600 to-amber-500",
       borderColor: "border-amber-400",
       glowColor: "rgba(245, 158, 11, 0.4)",
-      iconType: "router",
+      iconType: "gateway",
       details: {
         ip: gatewayNode.ip,
         hostname: gatewayNode.hostname,
