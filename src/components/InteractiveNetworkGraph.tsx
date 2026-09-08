@@ -91,8 +91,8 @@ export default function InteractiveNetworkGraph({
   const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null);
   // State for selected node to display in HUD card
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
-  // Toggle for ambient floating physics
-  const [ambientFloat, setAmbientFloat] = useState<boolean>(true);
+  // Toggle for hover reaction (balls react organically when cursor is nearby)
+  const [hoverReaction, setHoverReaction] = useState<boolean>(true);
   // Filter toggle: show/hide closed ports to reduce clutter
   const [showClosedPorts, setShowClosedPorts] = useState<boolean>(true);
 
@@ -101,8 +101,13 @@ export default function InteractiveNetworkGraph({
   // Trigger state to force re-render when dragging and updating positions
   const [renderCounter, setRenderCounter] = useState(0);
 
-  // Mouse / Touch coordinate tracking for drag
+  // Mouse / Touch coordinate tracking for drag and hover proximity
   const dragOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const mousePosRef = useRef<{ x: number; y: number; active: boolean }>({
+    x: -1000,
+    y: -1000,
+    active: false,
+  });
 
   // Gateway node from nodes list
   const gatewayNode = nodes.find((n) => n.role === "gateway") || {
@@ -148,8 +153,8 @@ export default function InteractiveNetworkGraph({
       type: "gateway",
       x: cx - 180,
       y: cy - 140,
-      vx: (Math.random() - 0.5) * 0.4,
-      vy: (Math.random() - 0.5) * 0.4,
+      vx: 0,
+      vy: 0,
       radius: 28,
       color: "from-amber-600 to-amber-500",
       borderColor: "border-amber-400",
@@ -172,8 +177,8 @@ export default function InteractiveNetworkGraph({
       type: "subnet",
       x: cx - 50,
       y: cy - 90,
-      vx: (Math.random() - 0.5) * 0.4,
-      vy: (Math.random() - 0.5) * 0.4,
+      vx: 0,
+      vy: 0,
       radius: 24,
       color: "from-indigo-600 to-indigo-500",
       borderColor: "border-indigo-400",
@@ -228,8 +233,8 @@ export default function InteractiveNetworkGraph({
           type: isOpen ? "port-open" : "port-closed",
           x: cx + Math.cos(angle) * portRadius,
           y: cy + 30 + Math.sin(angle) * portRadius,
-          vx: (Math.random() - 0.5) * 0.3,
-          vy: (Math.random() - 0.5) * 0.3,
+          vx: 0,
+          vy: 0,
           radius: isOpen ? 22 : 16,
           color: isOpen ? "from-emerald-600 to-teal-500" : "from-slate-700 to-slate-800",
           borderColor: isOpen ? "border-emerald-400" : "border-slate-600",
@@ -258,8 +263,8 @@ export default function InteractiveNetworkGraph({
         type: "peer",
         x: cx + offsetX,
         y: cy + offsetY,
-        vx: (Math.random() - 0.5) * 0.4,
-        vy: (Math.random() - 0.5) * 0.4,
+        vx: 0,
+        vy: 0,
         radius: 22,
         color: "from-slate-800 to-slate-700",
         borderColor: "border-slate-500",
@@ -302,7 +307,11 @@ export default function InteractiveNetworkGraph({
   }, []);
 
   /**
-   * 3. 60 FPS Physics & Motion Loop
+   * 3. Interactive Physics & Motion Loop (No Autonomous Drift!)
+   * - Balls stay 100% still by default.
+   * - When cursor hovers near or around a dot, it reacts/displaces with gentle spring force.
+   * - When dragged, follows pointer smoothly.
+   * - When released or cursor leaves, decelerates immediately to a dead stop.
    */
   useEffect(() => {
     let animationFrameId: number;
@@ -313,56 +322,55 @@ export default function InteractiveNetworkGraph({
 
       const w = dimensions.width;
       const h = dimensions.height;
+      let hasMovement = false;
 
-      // Soft repulsion / boundary physics
       nodesList.forEach((node) => {
-        // Skip updating position if the user is actively dragging this dot
+        // Skip node actively dragged by user
         if (node.id === draggedNodeId) return;
 
-        // Apply gentle ambient floating if enabled
-        if (ambientFloat) {
+        // 1. Organic Hover Proximity Reaction (only when user cursor hovers near)
+        if (hoverReaction && mousePosRef.current.active) {
+          const dx = node.x - mousePosRef.current.x;
+          const dy = node.y - mousePosRef.current.y;
+          const dist = Math.hypot(dx, dy);
+          const hoverZone = node.radius + 65; // Proximity field
+
+          if (dist < hoverZone && dist > 1) {
+            const force = (1 - dist / hoverZone) * 1.5;
+            node.vx += (dx / dist) * force;
+            node.vy += (dy / dist) * force;
+            hasMovement = true;
+          }
+        }
+
+        // 2. High friction damping: quickly stops movement so balls stay still
+        if (node.vx !== 0 || node.vy !== 0) {
           node.x += node.vx;
           node.y += node.vy;
+          node.vx *= 0.82;
+          node.vy *= 0.82;
 
-          // Boundary bouncing
+          if (Math.abs(node.vx) < 0.02) node.vx = 0;
+          if (Math.abs(node.vy) < 0.02) node.vy = 0;
+
+          // Keep within boundaries
           const pad = node.radius + 10;
-          if (node.x < pad) {
-            node.x = pad;
-            node.vx = Math.abs(node.vx);
-          } else if (node.x > w - pad) {
-            node.x = w - pad;
-            node.vx = -Math.abs(node.vx);
-          }
-
-          if (node.y < pad) {
-            node.y = pad;
-            node.vy = Math.abs(node.vy);
-          } else if (node.y > h - pad) {
-            node.y = h - pad;
-            node.vy = -Math.abs(node.vy);
-          }
-
-          // Gentle random velocity jitter to feel organic
-          if (Math.random() < 0.02) {
-            node.vx += (Math.random() - 0.5) * 0.1;
-            node.vy += (Math.random() - 0.5) * 0.1;
-            // Cap maximum speed
-            const speed = Math.hypot(node.vx, node.vy);
-            if (speed > 0.6) {
-              node.vx = (node.vx / speed) * 0.6;
-              node.vy = (node.vy / speed) * 0.6;
-            }
-          }
+          node.x = Math.max(pad, Math.min(w - pad, node.x));
+          node.y = Math.max(pad, Math.min(h - pad, node.y));
+          hasMovement = true;
         }
       });
 
-      setRenderCounter((c) => c + 1);
+      if (hasMovement || draggedNodeId) {
+        setRenderCounter((c) => c + 1);
+      }
+
       animationFrameId = requestAnimationFrame(tick);
     };
 
     animationFrameId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animationFrameId);
-  }, [dimensions, ambientFloat, draggedNodeId]);
+  }, [dimensions, hoverReaction, draggedNodeId]);
 
   /**
    * 4. Build Links (Edges connecting the dots)
@@ -438,14 +446,72 @@ export default function InteractiveNetworkGraph({
 
   const handleEndDrag = () => {
     if (draggedNodeId) {
-      // Give small random velocity on release
+      // Zero out velocity on release so the ball stays exactly where it was placed
       const node = graphNodesRef.current.find((n) => n.id === draggedNodeId);
       if (node) {
-        node.vx = (Math.random() - 0.5) * 0.4;
-        node.vy = (Math.random() - 0.5) * 0.4;
+        node.vx = 0;
+        node.vy = 0;
       }
       setDraggedNodeId(null);
     }
+  };
+
+  /**
+   * Reset all dots to their default stationary positions
+   */
+  const handleResetPositions = () => {
+    const w = dimensions.width;
+    const h = dimensions.height;
+    const cx = w / 2;
+    const cy = h / 2;
+
+    const list = graphNodesRef.current;
+    const gateway = list.find((n) => n.id === "gateway");
+    if (gateway) {
+      gateway.x = cx - 180;
+      gateway.y = cy - 140;
+      gateway.vx = 0;
+      gateway.vy = 0;
+    }
+
+    const subnetNode = list.find((n) => n.id === "subnet");
+    if (subnetNode) {
+      subnetNode.x = cx - 50;
+      subnetNode.y = cy - 90;
+      subnetNode.vx = 0;
+      subnetNode.vy = 0;
+    }
+
+    const target = list.find((n) => n.id === "target");
+    if (target) {
+      target.x = cx;
+      target.y = cy + 30;
+      target.vx = 0;
+      target.vy = 0;
+    }
+
+    const portNodes = list.filter((n) => n.type.startsWith("port"));
+    const portCount = portNodes.length;
+    const portRadius = 140;
+    portNodes.forEach((p, idx) => {
+      const angle = (idx / (portCount || 1)) * 2 * Math.PI - Math.PI / 2;
+      p.x = cx + Math.cos(angle) * portRadius;
+      p.y = cy + 30 + Math.sin(angle) * portRadius;
+      p.vx = 0;
+      p.vy = 0;
+    });
+
+    const peers = list.filter((n) => n.type === "peer");
+    peers.forEach((peer, idx) => {
+      const offsetX = 160 + (idx % 3) * 60;
+      const offsetY = -80 + Math.floor(idx / 3) * 70;
+      peer.x = cx + offsetX;
+      peer.y = cy + offsetY;
+      peer.vx = 0;
+      peer.vy = 0;
+    });
+
+    setRenderCounter((c) => c + 1);
   };
 
   // Helper map for fast node lookup when drawing links
@@ -470,16 +536,26 @@ export default function InteractiveNetworkGraph({
 
         {/* Action Controls */}
         <div className="flex items-center gap-2">
-          {/* Ambient Float Toggle */}
+          {/* Reset Layout Button */}
           <button
-            onClick={() => setAmbientFloat(!ambientFloat)}
+            onClick={handleResetPositions}
+            title="Reset dots back to their original balanced positions"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border-slate-700 transition-colors"
+          >
+            <RefreshCw className="w-3 h-3 text-cyan-400" />
+            <span>Reset Layout</span>
+          </button>
+
+          {/* Hover Reaction Toggle */}
+          <button
+            onClick={() => setHoverReaction(!hoverReaction)}
             className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
-              ambientFloat
-                ? "bg-blue-500/20 text-blue-300 border-blue-500/30"
+              hoverReaction
+                ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/30"
                 : "bg-slate-800 text-slate-400 border-slate-700"
             }`}
           >
-            Float: {ambientFloat ? "On" : "Off"}
+            Hover Reaction: {hoverReaction ? "On" : "Off"}
           </button>
 
           {/* Toggle Closed Ports */}
@@ -513,13 +589,37 @@ export default function InteractiveNetworkGraph({
         ref={containerRef}
         className="relative w-full rounded-2xl bg-slate-950 border border-slate-800/80 overflow-hidden cursor-grab active:cursor-grabbing select-none"
         style={{ height: `${dimensions.height}px` }}
-        onMouseMove={(e) => handlePointerMove(e.clientX, e.clientY)}
-        onMouseUp={handleEndDrag}
-        onMouseLeave={handleEndDrag}
-        onTouchMove={(e) => {
-          if (e.touches[0]) handlePointerMove(e.touches[0].clientX, e.touches[0].clientY);
+        onMouseMove={(e) => {
+          if (containerRef.current) {
+            const rect = containerRef.current.getBoundingClientRect();
+            mousePosRef.current = {
+              x: e.clientX - rect.left,
+              y: e.clientY - rect.top,
+              active: true,
+            };
+          }
+          handlePointerMove(e.clientX, e.clientY);
         }}
-        onTouchEnd={handleEndDrag}
+        onMouseUp={handleEndDrag}
+        onMouseLeave={() => {
+          mousePosRef.current.active = false;
+          handleEndDrag();
+        }}
+        onTouchMove={(e) => {
+          if (e.touches[0] && containerRef.current) {
+            const rect = containerRef.current.getBoundingClientRect();
+            mousePosRef.current = {
+              x: e.touches[0].clientX - rect.left,
+              y: e.touches[0].clientY - rect.top,
+              active: true,
+            };
+            handlePointerMove(e.touches[0].clientX, e.touches[0].clientY);
+          }
+        }}
+        onTouchEnd={() => {
+          mousePosRef.current.active = false;
+          handleEndDrag();
+        }}
       >
         {/* Subtle Cyber Grid Background */}
         <div
@@ -713,7 +813,7 @@ export default function InteractiveNetworkGraph({
           </span>
         </div>
 
-        <span>Live spring physics enabled</span>
+        <span>Stationary mode active • Reacts on hover &amp; touch</span>
       </div>
     </div>
   );
